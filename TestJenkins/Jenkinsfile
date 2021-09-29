@@ -1,21 +1,75 @@
 pipeline {
     agent any
 
+    tools {
+        maven "maven-nodo-principal"
+    }
+
     stages {
-        stage('Build') {
-            steps {
-                echo 'Building..'
-            }
-        }
         stage('Test') {
             steps {
-                echo 'Testing..'
+                
+                dir ('maven-adderapp') {
+                   sh "mvn test"
+                   sh "mvn package -DskipTests=true"
+                }
+
+            }
+            
+            post {
+                
+                always {
+                    dir('maven-adderapp') {
+                        junit '**/target/surefire-reports/*.xml'
+                    }
+                }
+                
+                success {
+                    dir ('maven-adderapp') {
+                        archiveArtifacts artifacts: 'target/*.java', fingerprint: true
+                        
+                        script {
+                            pom = readMavenPom file: "pom.xml";
+            
+                            files = findFiles(glob: "target/*.${pom.packaging}");
+                            echo "${files[0].name} ${files[0].path} ${files[0].directory} ${files[0].length} ${files[0].lastModified}"
+                            filePath = files[0].path;
+                            
+                            artifactExists = fileExists filePath;
+                            
+                            if(artifactExists){
+                                
+                                echo "*** File: ${filePath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}";
+
+                                nexusArtifactUploader(
+                                    nexusVersion: "nexus3",
+                                    protocol: "http",
+                                    nexusUrl: "${env.NEXUS}:8081",
+                                    groupId: pom.groupId,
+                                    version: pom.version,
+                                    repository: "maven-jenkins",
+                                    credentialsId: "nexus",
+                                    artifacts: [
+                                        
+                                        [artifactId: pom.artifactId,
+                                        classifier: '',
+                                        file: filePath,
+                                        type: pom.packaging],
+                                    
+                                        [artifactId: pom.artifactId,
+                                        classifier: '',
+                                        file: "pom.xml",
+                                        type: "pom"]
+                                    ]
+                                );
+                            
+                            }else{
+                                error "*** File: ${filePath}, no puede ser encontrado";
+                            }
+                         }
+                    }
+                }
             }
         }
-        stage('Deploy') {
-            steps {
-                echo 'Deploying....'
-            }
-        }
-    }
+    }   
 }
